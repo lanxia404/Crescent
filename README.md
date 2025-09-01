@@ -73,3 +73,4 @@ curl -s -X POST "http://127.0.0.1:8000/generate" \
 * configs/model/tiny-char-256.yaml：模型結構與訓練超參數。
 
 > 本專案為最小雛形，方便你後續擴充（RAG、MoE、KV-Cache、進階代碼自演化等）。
+# Crescent
