@@ -47,9 +47,9 @@ bash scripts/run_slot.sh current 8000
 curl -s -X POST "http://127.0.0.1:8000/generate" \
   -H 'Content-Type: application/json' \
   -d '{"prompt":"Hello","max_new_tokens":64,"temperature":0.8}'
-  ```
+```
 
-  ##  結構說明
+ ##  結構說明
 
 *  slots/A|B/weights/latest.pt：模型權重與訓練狀態快照。
 
