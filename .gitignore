@@ -425,3 +425,5 @@ scripts/*fix*.py
 scripts/*format*.sh
 scripts/*check*.sh
 scripts/repair_whitespace.py
+slots/A/weights/*.pt
+slots/B/weights/*.pt
