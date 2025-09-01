@@ -1,0 +1,4 @@
+requests>=2.31
+pandas>=2.2
+matplotlib>=3.8
+psutil>=5.9

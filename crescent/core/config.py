@@ -1,4 +1,3 @@
-# crescent/core/config.py
 import os
 from dataclasses import dataclass
 from typing import Literal, Optional
@@ -17,7 +16,7 @@ class ModelCfg:
     d_ff: int
     dropout: float
     max_seq_len: int
-    # BitNet 選用欄位
+    # BitNet（可選）
     bitnet_variant: Optional[str] = None
     act_bits: Optional[int] = None
     group_size: Optional[int] = None
@@ -32,6 +31,7 @@ class TrainCfg:
     epochs: int
     eval_interval: int
     seed: int
+    accumulation_steps: int = 1  # 新增
 
 
 @dataclass
@@ -51,19 +51,7 @@ class CrescentCfg:
             raise FileNotFoundError(f"Config not found: {path}")
         with open(path, "r", encoding="utf-8") as f:
             raw = yaml.safe_load(f)
-
-        def _require_map(section: str):
-            val = None if raw is None else raw.get(section)
-            if not isinstance(val, dict):
-                raise ValueError(
-                    f"YAML section '{section}' is missing or not a mapping in {path}.\n"
-                    f"Got: {type(val).__name__ if val is not None else 'None'}\n"
-                    f"Make sure your YAML looks like:\n"
-                    f'"""\n{section}:\n  key: value\n"""\n'
-                )
-            return val
-
-        m = ModelCfg(**_require_map("model"))
-        t = TrainCfg(**_require_map("train"))
-        r = RuntimeCfg(**_require_map("runtime"))
+        m = ModelCfg(**raw["model"])
+        t = TrainCfg(**raw["train"])
+        r = RuntimeCfg(**raw["runtime"])
         return CrescentCfg(model=m, train=t, runtime=r)

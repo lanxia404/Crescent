@@ -1,0 +1,19 @@
+{
+  "name": "bitnet",
+  "url": "http://127.0.0.1:8002",
+  "slot": "B",
+  "device": "xpu",
+  "runs": 10,
+  "warmup": 3,
+  "max_new_tokens": 256,
+  "temperature": 1.0,
+  "top_k": null,
+  "p50_latency_s": 9.82845687866211,
+  "p95_latency_s": 10.182113075256348,
+  "avg_toks_per_s": 46.006217478103274,
+  "min_toks_per_s": 42.534785308470084,
+  "max_toks_per_s": 51.28662671074899,
+  "rss_mb": 30,
+  "loss": 5.68795108795166,
+  "ppl": 295.2879812988736
+}

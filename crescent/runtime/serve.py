@@ -98,6 +98,7 @@ async def generate(req: GenReq):
     text = decode_bytes(out[0])
     return GenResp(slot=slot, device=str(device), output=text)
 
+
 @app.get("/")
 async def index():
     return {
@@ -106,8 +107,10 @@ async def index():
         "slot_hint": os.environ.get("CRESCENT_SLOT", "current"),
     }
 
+
 @app.get("/favicon.ico")
 async def favicon():
     # 回傳 204，避免 404 噪音
     from fastapi import Response
+
     return Response(status_code=204)

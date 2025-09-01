@@ -1,23 +1,24 @@
 model:
-  vocab_size: 256
-  d_model: 256
-  n_heads: 8
-  n_layers: 4
-  d_ff: 1024
-  dropout: 0.1
-  max_seq_len: 256
-  bitnet_variant: "1p58"  # 1.58-bit（三值）
-  act_bits: 8
-  group_size: 64
-  use_rope: true          # 參考 b1.58 採 LLaMA-alike，可開啟
+    vocab_size: 256
+    d_model: 256
+    n_heads: 8
+    n_layers: 6
+    d_ff: 1024
+    dropout: 0.1
+    max_seq_len: 1024
+    bitnet_variant: "1p58"
+    act_bits: 8
+    group_size: 64
+    use_rope: true
 
 train:
-  batch_size: 64
+  batch_size: 32
   lr: 3.0e-4
   weight_decay: 0.01
   epochs: 3
   eval_interval: 200
   seed: 42
+  accumulation_steps: 4
 
 runtime:
   dtype: bf16

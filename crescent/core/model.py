@@ -36,7 +36,10 @@ class ByteLM(nn.Module):
     def forward(self, x, targets=None):
         # x: (B, T) long
         B, T = x.size()
-        assert T <= self.max_seq_len, f"sequence length {T} exceeds max {self.max_seq_len}"
+        assert (
+            T <= self.max_seq_len
+        ), f"sequence length {T} exceeds max {
+            self.max_seq_len}"
         pos = torch.arange(0, T, device=x.device).unsqueeze(0)
         h = self.tok_emb(x) + self.pos_emb(pos)
         h = self.drop(h)

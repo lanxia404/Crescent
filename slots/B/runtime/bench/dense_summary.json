@@ -1,0 +1,19 @@
+{
+  "name": "dense",
+  "url": "http://127.0.0.1:8000",
+  "slot": "current",
+  "device": "xpu",
+  "runs": 10,
+  "warmup": 3,
+  "max_new_tokens": 256,
+  "temperature": 1.0,
+  "top_k": null,
+  "p50_latency_s": 2.4595333337783813,
+  "p95_latency_s": 2.4689730286598204,
+  "avg_toks_per_s": 187.87358273145045,
+  "min_toks_per_s": 177.93728329802065,
+  "max_toks_per_s": 200.79967414414625,
+  "rss_mb": 30,
+  "loss": 5.781961441040039,
+  "ppl": 324.3948481792333
+}
