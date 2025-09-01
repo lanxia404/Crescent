@@ -1,0 +1,2 @@
+To be replaced with your own training corpus. This is a tiny byte-level demo.
+Hello, Crescent! 這是一個簡單的字元級語料示例，用於測試訓練管線與服務端。

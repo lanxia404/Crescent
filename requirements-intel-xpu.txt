@@ -1,0 +1,4 @@
+# 注意：實際版本需依你的驅動與環境調整；此處提供常見搭配範例。
+# Intel Extension for PyTorch（IPEX）
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/xpu
+# 若你的平台提供專門的 XPU 版 torch，請改用對應的輪檔；否則沿用 requirements.txt 中的 torch。
