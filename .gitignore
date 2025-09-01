@@ -419,3 +419,9 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# ===== 開發中輔助/修正腳本 =====
+scripts/*fix*.py
+scripts/*format*.sh
+scripts/*check*.sh
+scripts/repair_whitespace.py
