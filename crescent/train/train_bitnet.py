@@ -1,14 +1,14 @@
+# crescent/train/train_bitnet.py
 import argparse
 import os
-
+from tqdm import tqdm
 import torch
 from torch.utils.data import DataLoader
-from tqdm import tqdm
 
-from crescent.bitnet.model_bitnet import ByteBitNetLM
 from crescent.core.config import CrescentCfg
 from crescent.train.dataset import ByteDataset
-from crescent.train.utils import choose_device, save_checkpoint, select_dtype, set_seed
+from crescent.train.utils import choose_device, select_dtype, set_seed, save_checkpoint
+from crescent.bitnet.model_bitnet import ByteBitNetLM
 
 
 def train(config_path: str, data_file: str, out_slot: str):
@@ -17,7 +17,19 @@ def train(config_path: str, data_file: str, out_slot: str):
     dtype = select_dtype(cfg.runtime.dtype, device)
     set_seed(cfg.train.seed)
 
-    ds = ByteDataset(data_file, seq_len=cfg.model.max_seq_len)
+    # === 防呆：依據語料長度調整有效序列長度，避免 0 樣本 ===
+    try:
+        corpus_bytes = os.path.getsize(data_file)
+    except OSError:
+        corpus_bytes = 0
+    if corpus_bytes < 2:
+        raise ValueError(
+            f"Training data too small: {data_file} has {corpus_bytes} bytes. "
+            "Please provide more data (>= 2 bytes)."
+        )
+    seq_len_eff = min(cfg.model.max_seq_len, max(8, corpus_bytes - 1))
+
+    ds = ByteDataset(data_file, seq_len=seq_len_eff)
     dl = DataLoader(ds, batch_size=cfg.train.batch_size, shuffle=True, drop_last=True)
 
     variant = getattr(cfg.model, "bitnet_variant", "1b")
@@ -46,7 +58,7 @@ def train(config_path: str, data_file: str, out_slot: str):
     model.train()
     global_step = 0
     for epoch in range(1, cfg.train.epochs + 1):
-        pbar = tqdm(dl, desc=f"[BitNet:{variant}] epoch {epoch}")
+        pbar = tqdm(dl, desc=f"[BitNet:{variant}] epoch {epoch} (seq_len_eff={seq_len_eff})")
         for x, y in pbar:
             x = x.to(device)
             y = y.to(device)
