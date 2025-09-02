@@ -1,137 +1,215 @@
 #!/usr/bin/env python3
-import argparse
-import asyncio
-import json
-import sys, os
-ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
+# -*- coding: utf-8 -*-
+"""
+Crescent Crawler (fixed, lint-clean, live logs)
+- Sitemap-aware, robots-aware, zh-first filter, shard JSONL writer
+- Replaces deprecated tldextract.registered_domain with top_domain_under_public_suffix
+"""
 
+import gzip
+import logging
+import os
+import queue
+import re
+import sys
+import urllib.parse
+import urllib.robotparser
+import xml.etree.ElementTree as ET
+from typing import Iterator, List, Optional, Set, Tuple
+
+import requests
+import tldextract
 from bs4 import BeautifulSoup
-from langdetect import LangDetectException, detect
-from tldextract import extract
-
-from crescent.crawl.dedup import Deduper
-from crescent.crawl.extract import extract_text
-from crescent.crawl.fetch import Fetcher
-from crescent.crawl.normalize import join_url, normalize_url
-from crescent.crawl.robots import RobotsCache
-from crescent.crawl.sitemap import discover_sitemaps, expand_sitemap
 
 
-def same_site(u: str, base_host: str) -> bool:
-    h = extract(u).registered_domain
-    return h == base_host
+# ----------------------------
+# Logging (immediate/line-flushed)
+# ----------------------------
+class LineFlushHandler(logging.StreamHandler):
+    def emit(self, record):
+        msg = self.format(record)
+        stream = self.stream
+        stream.write(msg + "\n")
+        try:
+            stream.flush()
+        except Exception:
+            pass
 
 
-async def crawl(args):
-    seeds = []
-    for s in args.seeds:
-        if s.startswith("http"):
-            seeds.append(normalize_url(s))
-        else:
-            seeds.append("https://" + s.strip().strip("/"))
-    out_dir = args.out_dir
-    os.makedirs(out_dir, exist_ok=True)
-    jsonl_path = os.path.join(out_dir, "pages.jsonl")
-    txt_path = os.path.join(out_dir, "corpus.txt")
+logger = logging.getLogger("crescent.crawl")
+logger.setLevel(logging.INFO)
+_handler = LineFlushHandler(sys.stdout)
+_handler.setFormatter(logging.Formatter("%(message)s"))
+logger.handlers = [_handler]
+logger.propagate = False
 
-    # 準備
-    base_host = extract(seeds[0]).registered_domain
-    robots = RobotsCache(ua=args.user_agent)
-    fetcher = Fetcher(ua=args.user_agent, max_concurrency=args.concurrency, rate_per_sec=args.rps)
-    deduper = Deduper(threshold=args.dedup_thresh)
-    seen_urls = set()
-    queue = asyncio.Queue()
 
-    for s in seeds:
-        await queue.put(s)
+# ----------------------------
+# Helpers
+# ----------------------------
+def top_domain_under_public_suffix(url: str) -> str:
+    ext = tldextract.extract(url)
+    # New property name (tldextract >= 5)
+    if hasattr(ext, "top_domain_under_public_suffix"):
+        return ext.top_domain_under_public_suffix  # type: ignore[attr-defined]
+    # Fallback for older tldextract
+    if hasattr(ext, "registered_domain"):
+        return ext.registered_domain  # type: ignore[attr-defined]
+    # Last resort
+    parts = [p for p in (ext.domain, ext.suffix) if p]
+    return ".".join(parts)
 
-    if args.use_sitemap:
-        maps = []
-        for s in seeds:
-            maps += await discover_sitemaps(s)
-        for m in maps:
-            for u in await expand_sitemap(m):
-                if same_site(u, base_host):
-                    await queue.put(normalize_url(u))
 
-    pages = 0
+def hostname_of(url: str) -> str:
+    return urllib.parse.urlsplit(url).hostname or ""
 
-    async def worker():
-        nonlocal pages
-        while not queue.empty() and pages < args.max_pages:
-            url = await queue.get()
-            if url in seen_urls:
-                continue
-            seen_urls.add(url)
-            if not same_site(url, base_host):
-                continue
-            if not await robots.allowed(url):
-                continue
+
+def is_cjk_text(s: str) -> bool:
+    # Heuristic: contains CJK Unified Ideographs or common Chinese punctuations
+    return bool(re.search(r"[\u4E00-\u9FFF\u3400-\u4DBF\u3000-\u303F]", s))
+
+
+def normalize_url(base: str, href: str) -> Optional[str]:
+    if not href:
+        return None
+    href = href.strip()
+    if href.startswith("#") or href.lower().startswith("javascript:"):
+        return None
+    return urllib.parse.urljoin(base, href)
+
+
+def extract_links(url: str, html: str) -> List[str]:
+    out: List[str] = []
+    soup = BeautifulSoup(html, "html.parser")
+    for a in soup.find_all("a"):
+        href = a.get("href")
+        u = normalize_url(url, href) if href else None
+        if u:
+            out.append(u)
+    return out
+
+
+def extract_text(html: str) -> Tuple[str, str]:
+    soup = BeautifulSoup(html, "html.parser")
+    # remove noise
+    for tag in soup(["script", "style", "noscript"]):
+        tag.extract()
+    title = soup.title.string.strip() if soup.title and soup.title.string else ""
+    # Wikipedia: drop navigation elements if obvious (best-effort)
+    main = soup.find(id="mw-content-text") or soup.body
+    text = main.get_text(separator="\n") if main else soup.get_text(separator="\n")
+    # normalize whitespace
+    lines = [re.sub(r"\s+", " ", ln).strip() for ln in text.splitlines()]
+    lines = [ln for ln in lines if ln]
+    body = "\n".join(lines)
+    return title, body
+
+
+def ensure_dir(path: str):
+    os.makedirs(path, exist_ok=True)
+
+
+def iter_sitemaps_from_robots(
+    session: requests.Session, base_root: str, timeout: float
+) -> List[str]:
+    robots_url = urllib.parse.urljoin(base_root, "/robots.txt")
+    logger.info(f"[Crescent][crawl] robots: GET {robots_url}")
+    try:
+        r = session.get(robots_url, timeout=timeout)
+        if r.status_code != 200:
+            logger.info(
+                f"[Crescent][crawl] robots: status={r.status_code}, fallback to /sitemap.xml"
+            )
+            return [urllib.parse.urljoin(base_root, "/sitemap.xml")]
+        sitemaps: List[str] = []
+        for line in r.text.splitlines():
+            line = line.strip()
+            if line.lower().startswith("sitemap:"):
+                sm = line.split(":", 1)[1].strip()
+                if sm:
+                    sitemaps.append(sm)
+        if not sitemaps:
+            sitemaps = [urllib.parse.urljoin(base_root, "/sitemap.xml")]
+        return sitemaps
+    except Exception as e:
+        logger.info(f"[Crescent][crawl] robots error: {e}, fallback to /sitemap.xml")
+        return [urllib.parse.urljoin(base_root, "/sitemap.xml")]
+
+
+def parse_sitemap_xml(content: bytes) -> List[str]:
+    # Accept both urlset and sitemapindex; tolerate missing namespaces
+    try:
+        root = ET.fromstring(content)
+    except ET.ParseError:
+        return []
+    urls: List[str] = []
+
+    # With namespace
+    ns = {"sm": "http://www.sitemaps.org/schemas/sitemap/0.9"}
+    for u in root.findall(".//sm:url/sm:loc", ns):
+        if u.text:
+            urls.append(u.text.strip())
+    for u in root.findall(".//sm:sitemap/sm:loc", ns):
+        if u.text:
+            urls.append(u.text.strip())
+
+    # Fallback: no namespace
+    if not urls:
+        for u in root.findall(".//url/loc"):
+            if u.text:
+                urls.append(u.text.strip())
+        for u in root.findall(".//sitemap/loc"):
+            if u.text:
+                urls.append(u.text.strip())
+
+    return urls
+
+
+def fetch_url(session: requests.Session, url: str, timeout: float) -> Optional[requests.Response]:
+    try:
+        r = session.get(url, timeout=timeout, allow_redirects=True)
+        return r
+    except Exception as e:
+        logger.info(f"[Crescent][crawl] GET fail: {url} ({e})")
+        return None
+
+
+def load_sitemap_urls(
+    session: requests.Session,
+    sitemaps: List[str],
+    timeout: float,
+    max_pages: int,
+) -> Iterator[str]:
+    seen_sm: Set[str] = set()
+    q: "queue.Queue[str]" = queue.Queue()
+    for sm in sitemaps:
+        q.put(sm)
+
+    collected = 0
+    while not q.empty() and collected < max_pages:
+        sm = q.get()
+        if sm in seen_sm:
+            continue
+        seen_sm.add(sm)
+        logger.info(f"[Crescent][crawl] sitemap: GET {sm}")
+        r = fetch_url(session, sm, timeout)
+        if not r or r.status_code != 200:
+            logger.info(f"[Crescent][crawl] sitemap: status={getattr(r, 'status_code', None)} skip")
+            continue
+        data = r.content
+        if sm.endswith(".gz"):
             try:
-                r = await fetcher.get(url)
-                ct = r.headers.get("content-type", "")
-                if "text/html" not in ct:
-                    continue
-                html = r.text
-                text = extract_text(html, url)
-                if not text:
-                    continue
-                # 語言過濾
-                try:
-                    lang = detect(text[:1000])
-                except LangDetectException:
-                    lang = "unk"
-                if args.lang and lang != args.lang:
-                    continue
-                if deduper.seen(text):
-                    continue
-
-                # 寫出
-                rec = {"url": url, "lang": lang, "n_chars": len(text)}
-                with (
-                    open(jsonl_path, "a", encoding="utf-8") as fj,
-                    open(txt_path, "a", encoding="utf-8") as ft,
-                ):
-                    fj.write(json.dumps(rec, ensure_ascii=False) + "\n")
-                    ft.write(text + "\n\n")
-                pages += 1
-
-                # 擴展鏈結
-                if pages < args.max_pages:
-                    soup = BeautifulSoup(html, "lxml")
-                    for a in soup.find_all("a", href=True):
-                        href = a.get("href")
-                        if href.startswith("mailto:") or href.startswith("javascript:"):
-                            continue
-                        nxt = join_url(url, href)
-                        if nxt not in seen_urls:
-                            await queue.put(nxt)
-            except Exception:
-                continue
-
-    workers = [asyncio.create_task(worker()) for _ in range(args.concurrency)]
-    await asyncio.gather(*workers)
-    print(f"[Crescent][crawl] done pages={pages}, out={out_dir}")
-
-
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--seeds", nargs="+", required=True, help="起點 URL 或 domain（可多個）")
-    ap.add_argument("--out-dir", default="data/crawl", help="輸出資料夾")
-    ap.add_argument(
-        "--lang", default="", help="只保留此語言（如 zh-cn/zh-tw/ja/en），用 langdetect 簡單判斷"
-    )
-    ap.add_argument("--max-pages", type=int, default=500)
-    ap.add_argument("--concurrency", type=int, default=8)
-    ap.add_argument("--rps", type=float, default=2.0, help="每秒請求上限")
-    ap.add_argument("--user-agent", default="CrescentCrawler/0.1")
-    ap.add_argument("--use-sitemap", action="store_true", help="啟用 sitemap 擴展 URL")
-    ap.add_argument("--dedup-thresh", type=float, default=0.9, help="近似去重閾值（MinHashLSH）")
-    args = ap.parse_args()
-    asyncio.run(crawl(args))
-
-
-if __name__ == "__main__":
-    main()
+                data = gzip.decompress(data)
+            except OSError:
+                pass
+        links = parse_sitemap_xml(data)
+        if not links:
+            continue
+        # If it's a sitemap index, links may be sitemaps; enqueue them.
+        is_index = all(
+            link.endswith(".xml") or link.endswith(".xml.gz") for link in links[:10]
+        )  # heuristic
+        if is_index:
+            for nxt in links:
+                if nxt not in seen_sm:
+                    q.put(nxt)

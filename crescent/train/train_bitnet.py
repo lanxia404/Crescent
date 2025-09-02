@@ -53,10 +53,7 @@ def train(config_path: str, data_file: str, out_slot: str):
     ).to(device=device, dtype=dtype)
 
     n_params = _count_params(model)
-    print(
-        f"[Crescent][BitNet:{variant}] Model params: {
-            n_params:,}  (seq_len_eff={seq_len_eff})"
-    )
+    print(f"[Crescent][BitNet:{variant}] Model params: {n_params:,}  (seq_len_eff={seq_len_eff})")
 
     opt = torch.optim.AdamW(
         model.parameters(), lr=cfg.train.lr, weight_decay=cfg.train.weight_decay

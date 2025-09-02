@@ -1,0 +1,25 @@
+model:
+  vocab_size: 256
+  d_model: 256
+  n_heads: 8
+  n_layers: 6
+  d_ff: 1024
+  dropout: 0.001
+  max_seq_len: 1024
+  # 下列為 BitNet 相關可選鍵；dense 情況保持為 null 即可
+  bitnet_variant: null
+  act_bits: null
+  group_size: null
+  use_rope: null
+
+train:
+  batch_size: 16         # 可依顯存再調
+  lr: 3.0e-4
+  weight_decay: 0.01
+  epochs: 10
+  eval_interval: 200
+  seed: 42
+  accumulation_steps: 4     # 梯度累積（等效 global batch = 32*4）
+
+runtime:
+  dtype: bf16               # 不支援時由程式 fallback 到 fp32
