@@ -6,7 +6,7 @@
 - 從零開始訓練：極簡字元級（byte-level，vocab=256）Decoder-only Transformer。
 - 服務化推理：FastAPI `/healthz` 與 `/generate`。
 - A/B 分槽：在 `B` 槽通過健康檢查後，用 `promote.sh` 原子切換至 `current`。
-- 裝置自動偵測：優先使用 **Intel XPU**（本地 PyTorch XPU），其次 CUDA（NVIDIA/ROCm），最後 CPU。
+- 裝置自動偵測：優先使用 **Intel XPU**（PyTorch XPU）、CUDA（NVIDIA/ROCm），最後 CPU。
 
 ## 安裝
 
@@ -57,4 +57,3 @@ curl -s -X POST "http://127.0.0.1:8000/generate" \
 
 * configs/model/tiny-char-256.yaml：模型結構與訓練超參數。
 
-> 本專案為最小雛形，方便你後續擴充（RAG、MoE、KV-Cache、進階代碼自演化等）。
