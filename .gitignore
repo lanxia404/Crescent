@@ -424,8 +424,8 @@ __marimo__/
 scripts/*fix*.py
 scripts/*format*.sh
 scripts/*check*.sh
-scripts/repair_whitespace.py
+scripts/*whitespace.py
 slots/A/weights/*.pt
 slots/B/weights/*.pt
-slots/A/weights/latest.pt
-slots/B/weights/latest.pt
+slots/A/weights/*st.pt
+slots/B/weights/*st.pt
